@@ -3,6 +3,7 @@ name: CI
   push:
     branches:
       - master
+      - test-ngsiv1-removal
   pull_request:
     branches:
       - master
