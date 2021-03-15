@@ -25,6 +25,11 @@ ARG GITHUB_REPOSITORY=iotagent-json
 ARG DOWNLOAD=latest
 ARG SOURCE_BRANCH=master
 
+# Default Builder, distro and distroless build version
+ARG BUILDER=node:${NODE_VERSION}
+ARG DISTRO=node:${NODE_VERSION}-slim
+ARG DISTROLESS=gcr.io/distroless/nodejs:${NODE_VERSION}
+
 ########################################################################################
 #
 # This build stage retrieves the source code from GitHub. The default download is the 
@@ -42,7 +47,7 @@ ARG SOURCE_BRANCH=master
 # --target=builder
 #
 ######################################################################################## 
-FROM node:${NODE_VERSION} AS builder
+FROM ${BUILDER} AS builder
 ARG GITHUB_ACCOUNT
 ARG GITHUB_REPOSITORY
 ARG DOWNLOAD
@@ -106,7 +111,7 @@ RUN \
 # --target=pm2-install
 #
 ########################################################################################
-FROM node:${NODE_VERSION}-slim AS pm2
+FROM ${DISTRO} AS pm2
 ARG GITHUB_ACCOUNT
 ARG GITHUB_REPOSITORY
 ARG NODE_VERSION
@@ -136,7 +141,7 @@ CMD ["pm2-runtime", "/opt/iotagent-json/bin/iotagent-json", "-- ", "config.js"]
 # as defined below.
 #
 ########################################################################################
-FROM node:${NODE_VERSION} AS anon-user
+FROM ${BUILDER} AS anon-user
 RUN sed -i -r "/^(root|nobody)/!d" /etc/passwd /etc/shadow /etc/group \
     && sed -i -r 's#^(.*):[^:]*$#\1:/sbin/nologin#' /etc/passwd
 
@@ -152,7 +157,7 @@ RUN sed -i -r "/^(root|nobody)/!d" /etc/passwd /etc/shadow /etc/group \
 # - IOTA_AUTH_CLIENT_ID, IOTA_AUTH_CLIENT_SECRET - when using OAuth2 Security
 #
 ########################################################################################
-FROM gcr.io/distroless/nodejs:${NODE_VERSION} AS distroless
+FROM ${DISTROLESS} AS distroless
 ARG GITHUB_ACCOUNT
 ARG GITHUB_REPOSITORY
 ARG NODE_VERSION
@@ -192,7 +197,7 @@ HEALTHCHECK  --interval=30s --timeout=3s --start-period=10s \
 # - IOTA_AUTH_CLIENT_ID, IOTA_AUTH_CLIENT_SECRET - when using OAuth2 Security
 #
 ########################################################################################
-FROM node:${NODE_VERSION}-slim AS slim
+FROM ${DISTRO} AS slim
 ARG GITHUB_ACCOUNT
 ARG GITHUB_REPOSITORY
 ARG NODE_VERSION
