@@ -29,6 +29,7 @@ ARG SOURCE_BRANCH=master
 ARG BUILDER=node:${NODE_VERSION}
 ARG DISTRO=node:${NODE_VERSION}-slim
 ARG DISTROLESS=gcr.io/distroless/nodejs:${NODE_VERSION}
+ARG PACKAGE_MANAGER=apt
 
 ########################################################################################
 #
@@ -44,16 +45,32 @@ ARG DISTROLESS=gcr.io/distroless/nodejs:${NODE_VERSION}
 # For development purposes, to create a development image including a running Distro, 
 # run this Docker file with the parameter:
 #
-# --target=builder
+# --target=init
 #
 ######################################################################################## 
-FROM ${BUILDER} AS builder
+FROM ${BUILDER} AS init
 ARG GITHUB_ACCOUNT
 ARG GITHUB_REPOSITORY
 ARG DOWNLOAD
 ARG SOURCE_BRANCH
+ARG PACKAGE_MANAGER
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+USER root
+RUN \
+	# Ensure that the chosen package manger is supported by this Dockerfile
+	# also ensure that unzip is installed prior to downloading sources
+	if [ "${PACKAGE_MANAGER}" = "apt"  ]; then \
+		echo -e "\033[0;34mINFO: Using default \"${PACKAGE_MANAGER}\".\033[0m"; \
+		apt-get install -y --no-install-recommends unzip; \
+	elif [ "${PACKAGE_MANAGER}" = "yum"  ]; then \
+		echo -e "\033[0;33mWARNING: Overriding default package manager. Using \"${PACKAGE_MANAGER}\" .\033[0m"; \
+		yum install -y unzip; \
+	else \
+	 	echo -e "\033[0;31mERROR: Package Manager \"${PACKAGE_MANAGER}\" not supported.\033[0m"; \
+	 	exit 1; \
+	fi
 
 # As an Alternative for local development, just copy this Dockerfile into file the root of 
 # the repository and replace the whole RUN statement below by the following COPY statement 
@@ -64,14 +81,10 @@ SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 # hadolint ignore=DL3008
 RUN \
-	# Ensure that unzip is installed prior to downloading
-	apt-get install -y --no-install-recommends unzip && \
-	if [ "${DOWNLOAD}" = "latest" ] ; \
-	then \
+	if [ "${DOWNLOAD}" = "latest" ] ; then \
 		RELEASE="${SOURCE_BRANCH}"; \
 		echo "INFO: Building Latest Development from ${SOURCE_BRANCH} branch."; \
-	elif [ "${DOWNLOAD}" = "stable" ]; \
-	then \
+	elif [ "${DOWNLOAD}" = "stable" ]; then \
 		RELEASE=$(curl -s https://api.github.com/repos/"${GITHUB_ACCOUNT}"/"${GITHUB_REPOSITORY}"/releases/latest | grep 'tag_name' | cut -d\" -f4); \
 		echo "INFO: Building Latest Stable Release: ${RELEASE}"; \
 	else \
@@ -82,25 +95,32 @@ RUN \
 	curl -s -L https://github.com/"${GITHUB_ACCOUNT}"/"${GITHUB_REPOSITORY}"/archive/"${RELEASE}".zip > source.zip && \
 	unzip source.zip -x "*/test/**" "*/rpm/**" "*/ghpages/**" "*/docs/**" "*/.*" && \
 	rm source.zip && \
-	mv "${GITHUB_REPOSITORY}-${RELEASE_CONCAT}" /opt/iotagent-json && \
-	# Remove unzip and clean apt cache
-	apt-get clean && \
-	apt-get remove -y unzip && \
-	apt-get -y autoremove && \
-	rm -rf /var/lib/apt/lists/* 
+	mv "${GITHUB_REPOSITORY}-${RELEASE_CONCAT}" /opt/iotagent-json 
 
+########################################################################################
+#
+# This build stage installs the application
+# 
+# --target=builder
+#
+########################################################################################
+FROM ${DISTRO} AS builder
+ARG PACKAGE_MANAGER
+
+COPY --from=init /opt/iotagent-json /opt/iotagent-json
 WORKDIR /opt/iotagent-json
 
+USER root
 # hadolint ignore=DL3008
 RUN \
 	# Ensure that Git is installed prior to running npm install
-	apt-get install -y --no-install-recommends git && \
+	if [ "${PACKAGE_MANAGER}" = "apt" ] ; then \
+		apt-get update; \
+		apt-get install -y git; \
+	fi && \
 	echo "INFO: npm install --production..." && \
-	npm install --only=prod --no-package-lock --no-optional && \
-	# Remove Git and clean apt cache
-	apt-get clean && \
-	apt-get remove -y git && \
-	apt-get -y autoremove
+	npm install --only=prod --no-package-lock --no-optional
+
 
 ########################################################################################
 #
@@ -127,6 +147,8 @@ LABEL "org.opencontainers.image.source"="https://github.com/${GITHUB_ACCOUNT}/${
 LABEL "org.nodejs.version"="${NODE_VERSION}"
 
 COPY --from=builder /opt/iotagent-json /opt/iotagent-json
+
+USER root
 RUN npm install pm2@4.4.0 -g --no-package-lock --no-optional
 
 USER node
@@ -142,6 +164,7 @@ CMD ["pm2-runtime", "/opt/iotagent-json/bin/iotagent-json", "-- ", "config.js"]
 #
 ########################################################################################
 FROM ${BUILDER} AS anon-user
+USER root
 RUN sed -i -r "/^(root|nobody)/!d" /etc/passwd /etc/shadow /etc/group \
     && sed -i -r 's#^(.*):[^:]*$#\1:/sbin/nologin#' /etc/passwd
 
