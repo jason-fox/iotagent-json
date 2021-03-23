@@ -57,6 +57,7 @@ ARG PACKAGE_MANAGER
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+# hadolint ignore=DL3002
 USER root
 RUN \
 	# Ensure that the chosen package manger is supported by this Dockerfile
@@ -67,6 +68,7 @@ RUN \
 	elif [ "${PACKAGE_MANAGER}" = "yum"  ]; then \
 		echo -e "\033[0;33mWARNING: Overriding default package manager. Using \"${PACKAGE_MANAGER}\" .\033[0m"; \
 		yum install -y unzip; \
+		yum clean all; \
 	else \
 	 	echo -e "\033[0;31mERROR: Package Manager \"${PACKAGE_MANAGER}\" not supported.\033[0m"; \
 	 	exit 1; \
@@ -79,7 +81,6 @@ RUN \
 # COPY . /opt/iotagent-json/
 #
 
-# hadolint ignore=DL3008
 RUN \
 	if [ "${DOWNLOAD}" = "latest" ] ; then \
 		RELEASE="${SOURCE_BRANCH}"; \
@@ -110,13 +111,13 @@ ARG PACKAGE_MANAGER
 COPY --from=init /opt/iotagent-json /opt/iotagent-json
 WORKDIR /opt/iotagent-json
 
+# hadolint ignore=DL3002
 USER root
-# hadolint ignore=DL3008
 RUN \
 	# Ensure that Git is installed prior to running npm install
 	if [ "${PACKAGE_MANAGER}" = "apt" ] ; then \
 		apt-get update; \
-		apt-get install -y git; \
+		apt-get install -y --no-install-recommends git; \
 	fi && \
 	echo "INFO: npm install --production..." && \
 	npm install --only=prod --no-package-lock --no-optional
@@ -164,6 +165,7 @@ CMD ["pm2-runtime", "/opt/iotagent-json/bin/iotagent-json", "-- ", "config.js"]
 #
 ########################################################################################
 FROM ${BUILDER} AS anon-user
+# hadolint ignore=DL3002
 USER root
 RUN sed -i -r "/^(root|nobody)/!d" /etc/passwd /etc/shadow /etc/group \
     && sed -i -r 's#^(.*):[^:]*$#\1:/sbin/nologin#' /etc/passwd
